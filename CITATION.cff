@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use rggmci, please cite it as below, and cite antiSMASH, whose output it reads."
+title: "rggmci: Reference-Guided Genome Mining Candidate Inference"
+abstract: >-
+  Surfaces antiSMASH regions in a fragmented genome assembly that may belong to one biosynthetic pathway,
+  by reading the ClusterBlast and KnownClusterBlast results antiSMASH already wrote. A candidate is a
+  hypothesis to check at gene level, not a joined contig.
+type: software
+authors:
+  - family-names: Smith
+    given-names: Alexander J.
+license: MIT
+repository-code: "https://github.com/alexanderjsmith1/rggmci"
+version: 1.0.0rc1
+references:
+  - type: article
+    title: "antiSMASH 8.0"
+    doi: 10.1093/nar/gkaf334
+  - type: article
+    title: "MIBiG 4.0"
+    doi: 10.1093/nar/gkae1115

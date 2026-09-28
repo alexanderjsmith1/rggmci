@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rggmci"
+version = "1.0.0rc1"
+description = "Surfaces antiSMASH regions in a fragmented assembly that may belong to one biosynthetic pathway"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/alexanderjsmith1/rggmci"
+
+[project.optional-dependencies]
+# Biopython is used when present; a built-in GenBank reader is the fallback.
+bio = ["biopython>=1.83,<2.0"]
+
+[project.scripts]
+rggmci = "rggmci.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+rggmci = ["PROVENANCE.json"]

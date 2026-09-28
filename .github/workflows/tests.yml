@@ -1,0 +1,31 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+        biopython: ["with", "without"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          if [ "${{ matrix.biopython }}" = "with" ]; then pip install -e ".[bio]"; else pip install -e .; fi
+          pip install pytest
+      - name: Built-in GenBank reader is used when Biopython is absent
+        if: matrix.biopython == 'without'
+        run: python -c "import importlib.util as u, sys; sys.exit(1 if u.find_spec('Bio') else 0)"
+      - name: Tests
+        run: pytest -q
+      - name: Command line runs on the example
+        run: rggmci examples/VWPH00000000.1_subset.antismash.zip --out /tmp/result.json --pairs /tmp/pairs.tsv
