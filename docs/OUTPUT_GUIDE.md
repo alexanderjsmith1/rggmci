@@ -31,6 +31,12 @@ One row per scored pair of regions.
 | `subject_tiling_verdict` | the gene-level check on shared references: `COMPLEMENTARY_SPLIT` (the regions hit different genes), `TERMINUS_TRUNCATION_SPLIT` (a fragment cut at a contig end), `OVERLAPPING_PARALOG` (they hit the same genes), `MIXED_SUBJECT_SIGNAL` (some of each) |
 | `max_endpoint_hub_degree` | the larger number of HIGH partners either region had before the hub guard |
 | `best_sources` | the five best supporting references, with where each region's hits sit on them and how many proteins each contributed |
+| `depth_a`, `depth_b` | each contig's read depth, from the `_cov_` part of a SPAdes contig name; blank for other names |
+| `depth_ratio`, `depth_flag` | the lower depth over the higher. `DEPTH_MISMATCH` below 0.67 (a plasmid, a repeat, or a second population), `DEPTH_CONSISTENT` otherwise, `DEPTH_UNAVAILABLE` without depths. A flag, never a demotion |
+| `completion_tier` | whether reference-guided completion ran: `FULL`, `NO_ALIGNER`, `NO_MIBIG_PROTEINS`, `NO_WHOLE_GENOME_GENBANK` or `OFF` |
+| `ref_completion_partner` | `yes` when one region's contig is an accepted partner for the other region's reference; `no`; `no_reference` when neither region had a reference. Blank unless `FULL` |
+| `split_gene_links` | how many genes split across the two regions' contigs were called `CLEAR`; one broken gene counts once, however many references see it. Blank unless `FULL` |
+| `residue_tiling` | for pairs the paralog gate demoted, which stretch of each shared MIBiG protein each region covers: `COMPLEMENTARY_RESIDUES`, `OVERLAPPING_RESIDUES`, `MIXED_RESIDUES`, `THIN_RESIDUES`, `NO_SHARED_MIBIG_REFERENCE` or `NOT_TESTED`. Present only when the DIAMOND search ran (see below) |
 
 ### `acceptance_gate` verdicts
 
@@ -80,8 +86,73 @@ that touch a group, as places to look next.
 ## Summary (`SUMMARY.tsv`)
 
 One row per genome: regions, pairs, HIGH, MODERATE, how many HIGH pairs cross contigs and how many of those
-have both regions at contig ends, how many groups, and the size of the largest group. An `error` column records a ZIP that could not be read; the
+have both regions at contig ends, how many groups, and the size of the largest group. Three columns describe
+reference-guided completion: `completion_tier`, the number of accepted partner contigs, and the number of `CLEAR`
+split genes. An `error` column records a ZIP that could not be read; the
 batch carries on past it.
+
+## Reference-guided completion
+
+Written with `--out-dir` as three tables per genome, and under `reference_completion` in the JSON. Every row starts
+with the tier, the aligner, the region (`<genome> / <contig> / regionNNN / <alias>`), its reference, how the reference
+was chosen (`knownclusterblast`, or `discovered` with its protein count, ties and size check) and the reference's
+compound names. When the tier is not `FULL`, each table holds one row that names the tier.
+
+The reference is the region's best-ranked KnownClusterBlast MIBiG hit that the database holds. A region with no such
+hit is given the MIBiG cluster with the most region proteins at 35% identity or more over half the protein or more:
+at least two proteins, one of them with a biosynthetic role, in a cluster of 250 kb or less.
+
+### Reference genes (`<genome>_reference_completion.tsv`)
+
+One row per reference gene.
+
+| column | meaning |
+|---|---|
+| `status` | `PRESENT_IN_CORE` (a match inside the region at 30% identity or more over half the reference protein, or 25% with e ≤ 1e-10), `MISSING_FOUND_CLEAR` (the best match elsewhere reaches 35% and beats the next candidate's score by 20% or more), `MISSING_FOUND_AMBIGUOUS`, `MISSING_NOT_FOUND` |
+| `best_identity_pct`, `best_coverage_pct`, `best_locus`, `best_contig`, `best_region_identity` | the best match and where it sits; a match outside every region is labelled `(no antiSMASH region)` |
+| `reciprocal_best` | whether this reference gene is that protein's own best match among the reference's genes |
+| `partner_verdict` | for a find outside the region: `SUPPORTED` (another find of this reference sits within 10 kb), `SINGLE_GENE`, `HOUSEKEEPING_CONTEXT` (a lone find beside primary-metabolism genes; needs the Pfam scan) or `PARALOG_FAMILY` (the reciprocal search fails, or five or more other genome proteins match the same reference gene) |
+| `reciprocal_best_mibig`, `reciprocal_best_identity`, `reciprocal_reference_identity`, `reciprocal_family_ratio` | the find's own best MIBiG cluster, and how its best score against the reference's compound family compares. Below 0.9 the find belongs to another family |
+| `paralogs_in_genome`, `adjacent_finds`, `housekeeping_neighbours`, `neighbour_pfams` | the counts behind the verdict; `neighbour_pfams` lists only the housekeeping-marker domains found |
+
+The reciprocal search uses the stretch of the genome protein that matched the reference and every MIBiG target, not
+a top few. A conserved family can match many clusters almost equally.
+
+### Split genes (`<genome>_split_genes.tsv`)
+
+A reference gene in two pieces on different contigs. Each piece covers 40 residues or more of the gene and less than
+80% of it. The pieces overlap by 20 residues or less and together cover half the gene or more. Each piece's open end
+lies within 300 bp of a contig end.
+
+| `split_call` | meaning |
+|---|---|
+| `CLEAR` | the pieces beat any whole-gene match elsewhere by 10 identity points or more |
+| `WEAK` | they beat it by less |
+| `RIVAL_STRONGER` | a whole gene elsewhere matches as well: likely paralog fragments |
+| `MODULAR_UNRESOLVED` | the reference gene or a piece is an assembly-line protein (a KS or C domain, or two or more A domains), where module paralogy can fake two halves |
+| `RECURRENT_COMMON_GENE` | the same two pieces also split against references of unrelated compound families, at least one belonging to a region that holds neither piece: a broken common gene, such as a regulator. `split_call_before_recurrence` keeps the call it replaced |
+
+### Partner contigs (`<genome>_partner_contigs.tsv`)
+
+One row per contig, other than the region's own, that carries a find or a split piece.
+
+| column | meaning |
+|---|---|
+| `position_ok` | a find lies within 20 kb of a contig end, or the contig is under 40 kb |
+| `depth_ratio`, `depth_ok` | the contig's read depth over the region's contig's; fails below 0.67, blank without depths (blank never fails) |
+| `partner_verdicts` | the verdicts of its finds, and its split pieces |
+| `support_ok` | two or more passing finds with one `SUPPORTED`, or a passing `CLEAR` split piece. A find passes when it is near a contig end and `SUPPORTED` or `SINGLE_GENE`; mobile-element genes (transposase, integrase, recombinase, insertion element) never count |
+| `accepted`, `reason` | `accepted` needs support and a depth that does not fail. `reason` is `accepted`, `depth`, `support` or `no passing finds` |
+
+### Residue tiling (pair fields beginning `residue_`)
+
+For pairs the paralog gate demoted (`ST-PARALOG_no_complementarity_proof`), each region's proteins are aligned with
+DIAMOND against the MIBiG clusters both regions share in KnownClusterBlast. Each side is placed on a cluster with
+every residue used once. A cluster is complementary when each side places 300 residues or more and they share 10% or
+less of the smaller side, and overlapping when they share more. It runs with `--diamond-db`, or by default when the
+completion database has its DIAMOND index. With `--diamond-db`, `--residue-scope all` tests every pair. The detail fields describe the
+cluster both sides match best. Against relatives near 50% identity, modular PKS often reads `MIXED_RESIDUES`: one
+module cannot be told from another.
 
 ## BLASTp queries (`rggmci fasta`)
 

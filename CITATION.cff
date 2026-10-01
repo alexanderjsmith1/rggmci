@@ -11,7 +11,7 @@ authors:
     given-names: Alexander J.
 license: MIT
 repository-code: "https://github.com/alexanderjsmith1/rggmci"
-version: 1.0.0rc1
+version: 1.0.0rc2
 references:
   - type: article
     title: "antiSMASH 8.0"

@@ -1,20 +1,22 @@
 {
- "package_version": "1.0.0rc1",
- "built_from_bundle": "9.7.444",
- "engine": "1.9.171",
- "build": "20260929v97444a",
+ "package_version": "1.0.0rc2",
+ "built_from_bundle": "9.7.446",
+ "engine": "1.9.172",
+ "build": "20261001v97446a",
  "source_sha256": {
-  "mamey/rggmci.py": "511ea14d5ed5647342c511a0d06e365dfdd577ef8039deafcfd67f10d5f252f1",
+  "mamey/rggmci.py": "a834602adedd6fdd347ed98cc4cef51c8b6145df991bcf674bc38c0e7c19c892",
   "mamey/ziputil.py": "d7dc10492b6737ac4d10680562f57b41756c07ede76cada815e2ae6db4a21fb6",
   "mamey/pair_scan_caps.py": "19c0f974b5a5384b1c0de73d3cdb94d00730bf0824caec6389bc8defd1b487df",
   "mamey/_gbk_shim.py": "597091a2ac9a7badfbc2cf26fecf80aa80e6a5eea71aa2a0442db373fe35ecd9",
   "mamey/csv_safety.py": "c590ba157343703adaaa870e2b2a54ffaf126f25ead5685901bef9f8f30ba4e9",
+  "mamey/residue_tiling.py": "52b292f5b04d908713a14c49a156265ac921d2329b89896892fa79ed3d8a7181",
+  "mamey/ref_completion.py": "7b8e915ffbf7b4ccf0213f3d704fd3c8ca670b64b29a13623cedd176cdd5954a",
   "mamey/rescue_groups.py": "e9d494bce6ccc2fd81a5324c41e436d41988adce6e2340de912a1cfbe9b44b7a",
   "mamey/crosswalk.py": "f8e8185b2f9077af077007e37ccf34e3c03996651a18507ca9288f6cf3f86045",
-  "mamey/antismash_evidence.py": "91269557136bc3d3e68308b303bc05ca667ca24444e575d636fbaa3ed98ab65c",
+  "mamey/antismash_evidence.py": "ba871b54f0874b951e2e4d2ad62a2dce894489370eb4adfcb8f3e742d52781cc",
   "mamey/parsers.py": "496daf25b3c6c43fd733a985894da4fd54630fd2629b9795d3e99c97bbbc9ef1",
   "mamey/bgc_blastp_panel.py": "4b5ce5dc75979f8f4b6d0607d46a1529aa07345481ed5feac966267b0b2a3ba3",
   "mamey/blastp_followup.py": "09da6b7c3a452d7eaa732bf2675266e61dd8044f2227fd76c01f948eb4b3e50f",
-  "mamey/class_architecture.py": "e5203bd3ba26c32689d0b81c10cfd8473c29fedb548d4838acf7efb4ba682bd7"
+  "mamey/class_architecture.py": "ac9f2dcbf552e61e06d322eb85a8d56050a04aca8e1ff3ec7de3f77b8c11798c"
  }
 }

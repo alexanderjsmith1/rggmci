@@ -58,6 +58,54 @@ rggmci blastp-layer --manifest queries/blastp_manifest.json \
 - The layer sits beside the RG-GMCI confidence and never changes it. Similarity is not identity: shared
   homologs in one organism are a reason to look at that organism's genome, not proof of one pathway.
 
+## Reference-guided completion
+
+ClusterBlast lists the reference clusters each region resembles. Completion asks the reference itself where its genes
+are. For each region at a contig edge, it takes the best KnownClusterBlast MIBiG reference and searches every protein
+of that cluster against every protein in the genome, not only those inside antiSMASH regions. A missing piece of a
+pathway can sit on a short contig that antiSMASH never flagged, and one gene can be cut in two by the assembly.
+
+Per region it reports:
+- each reference gene: present in the region, found clearly elsewhere, found ambiguously, or not found;
+- reference genes split across two contig ends, with a call: `CLEAR`, `WEAK`, `RIVAL_STRONGER`,
+  `MODULAR_UNRESOLVED` or `RECURRENT_COMMON_GENE`;
+- partner contigs, each with the tests it passed: position near a contig end, read depth, a reciprocal search against
+  all MIBiG proteins, and support from more than one gene.
+
+A region with no KnownClusterBlast hit gets a discovered reference: the MIBiG cluster that most of its proteins match.
+
+Completion needs two things and runs only when both are found:
+- a MIBiG protein database, built once with `rggmci build-mibig-db` and given with `--mibig-db` or `$RGGMCI_MIBIG_DB`;
+- an aligner: DIAMOND (`diamond` on PATH, `--diamond` or `$RGGMCI_DIAMOND`), or BLAST+ (`blastp` and `makeblastdb`
+  on PATH). DIAMOND is faster. BLAST+ uses the same thresholds and gives comparable, not identical, tables.
+
+It also needs the whole-genome GenBank file that antiSMASH writes into its result ZIP. A ZIP of region files alone
+cannot be searched outside its regions.
+
+```bash
+rggmci build-mibig-db mibig_gbk/ mibig_proteins/                          # once
+rggmci my_genome.antismash.zip --out-dir results/ --mibig-db mibig_proteins/
+```
+
+- `build-mibig-db` reads a folder of MIBiG GenBank files, one cluster per file, named by accession
+  (`BGC0000001.gbk`). Files annotated by antiSMASH also carry each gene's role and domains, which it records.
+- `--compounds index.json` adds compound names, in the form
+  `{"entries": [{"accession": "BGC0000001", "compounds": ["abyssomicin C"]}]}`. Related entries then count as one
+  compound family in the reciprocal search; without it, each entry is its own family.
+- It writes the protein FASTA, a protein table, a cluster table and a manifest with checksums, plus a DIAMOND index
+  when DIAMOND is found. It downloads nothing, and it refuses a folder that already holds files.
+- With `pyhmmer` installed and a pressed `Pfam-A.hmm` (`--pfam` or `$RGGMCI_PFAM_HMM`), a lone find with two or more
+  primary-metabolism genes among its four neighbours on each side (lysine or arginine synthesis, ribosomes, tRNA
+  charging and similar) is set aside as housekeeping.
+
+Every pair and table row says which tier ran: `FULL`, `NO_ALIGNER`, `NO_MIBIG_PROTEINS`, `NO_WHOLE_GENOME_GENBANK`
+or `OFF` (`--reference-completion off`). Without completion the pairs are scored exactly as before. A tier other
+than `FULL` means the search did not run; it does not mean no partner exists.
+
+Completion is homology evidence. A partner is a candidate missing piece, a split gene is two pieces of one reference
+protein at facing contig ends, no contigs are joined, and no score or confidence changes.
+[docs/OUTPUT_GUIDE.md](docs/OUTPUT_GUIDE.md) describes every column.
+
 ## What it reports
 
 - One row per scored region pair, with the two regions' contigs, products and edge status.

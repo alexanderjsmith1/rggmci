@@ -18,7 +18,8 @@ from .csv_safety import SafeDictWriter
 GROUP_COLS = ["genome", "group", "n_regions", "n_contigs", "n_at_contig_ends", "high_pairs", "regions", "pairs",
               "possible_moderate_links"]
 SUMMARY_COLS = ["genome", "regions", "scored_pairs", "high", "moderate", "high_cross_contig", "high_both_at_contig_ends",
-                "candidate_groups", "largest_group_regions", "related_loci", "reference_map_status", "error"]
+                "candidate_groups", "largest_group_regions", "related_loci", "reference_map_status",
+                "completion_tier", "completion_partners_accepted", "completion_split_genes_clear", "error"]
 
 
 def _inputs(paths: list[Path]) -> list[Path]:
@@ -53,7 +54,13 @@ def _summary(name: str, res: dict) -> dict:
                                             and p.get("both_at_contig_ends")),
             "candidate_groups": len(groups), "largest_group_regions": max((g["n_regions"] for g in groups), default=0),
             "related_loci": len(res.get("related_locus_pairs") or []),
-            "reference_map_status": res.get("reference_map_status"), "error": ""}
+            "reference_map_status": res.get("reference_map_status"),
+            "completion_tier": (res.get("reference_completion") or {}).get("completion_tier", ""),
+            "completion_partners_accepted": sum(1 for p in (res.get("reference_completion") or {}).get("partners", [])
+                                                if p.get("accepted")),
+            "completion_split_genes_clear": sum(1 for p in (res.get("reference_completion") or {}).get("splits", [])
+                                                if p.get("split_call") == "CLEAR"),
+            "error": ""}
 
 
 def fasta_main(argv) -> int:
@@ -122,13 +129,36 @@ def main(argv=None) -> int:
         return fasta_main(argv[1:])
     if argv and argv[0] == "blastp-layer":
         return layer_main(argv[1:])
+    if argv and argv[0] == "build-mibig-db":
+        from .ref_completion import main as completion_main
+        return completion_main(argv)
     ap = argparse.ArgumentParser(prog="rggmci", description="Candidate BGC fragments that may belong to one "
                                  "pathway, from antiSMASH results. Candidates only: check each one at gene level.")
     ap.add_argument("inputs", nargs="+", type=Path, help="antiSMASH result ZIP(s), or folders of them")
     ap.add_argument("--out", type=Path, help="one genome: write the full result as JSON")
     ap.add_argument("--pairs", type=Path, help="one genome: write ranked pairs as TSV")
     ap.add_argument("--out-dir", type=Path, help="many genomes: per-genome JSON, pairs and groups, plus SUMMARY.tsv")
+    ap.add_argument("--diamond-db", type=Path, help="optional: a DIAMOND database of MIBiG proteins (ids start with the "
+                    "MIBiG accession). Adds residue-tiling evidence to pairs; never changes a confidence")
+    ap.add_argument("--diamond", type=Path, help="the DIAMOND binary (default: $RGGMCI_DIAMOND, then diamond on PATH)")
+    ap.add_argument("--residue-scope", choices=("st_paralog", "all"), default="st_paralog",
+                    help="pairs to test: those demoted by the whole-gene paralog gate (default), or all")
+    ap.add_argument("--mibig-db", type=Path, help="MIBiG protein database folder from `rggmci build-mibig-db` "
+                    "(default: $RGGMCI_MIBIG_DB). With it and DIAMOND or BLAST+, each edge region's MIBiG reference is "
+                    "searched across the whole genome: missing and split genes, and tested partner contigs")
+    ap.add_argument("--reference-completion", choices=("auto", "off"), default="auto",
+                    help="auto (default) runs reference-guided completion when its inputs are found; off skips it. "
+                         "Every pair and table says which tier ran")
+    ap.add_argument("--sensitivity", choices=("sensitive", "more-sensitive", "ultra-sensitive", "default"),
+                    default="sensitive", help="DIAMOND mode for the completion search (default sensitive)")
+    ap.add_argument("--threads", type=int, default=4, help="aligner threads (default 4)")
+    ap.add_argument("--pfam", type=Path, help="optional pressed Pfam-A.hmm (needs pyhmmer): sets aside a lone partner "
+                    "find beside housekeeping genes")
     a = ap.parse_args(argv)
+    residue = {"reference_completion": a.reference_completion, "mibig_db": a.mibig_db, "diamond": a.diamond,
+               "sensitivity": a.sensitivity, "threads": a.threads, "pfam_hmm": a.pfam}
+    if a.diamond_db:
+        residue.update(diamond_db=a.diamond_db, residue_scope=a.residue_scope)
     zips = _inputs(a.inputs)
     missing = [z for z in zips if not z.is_file()]
     if missing or not zips:
@@ -143,7 +173,7 @@ def main(argv=None) -> int:
     for z in zips:
         name = z.stem
         try:
-            res = run(z)
+            res = run(z, **residue)
         except Exception as exc:   # report and keep going; one bad ZIP should not stop a batch
             summary.append({"genome": name, "error": f"{type(exc).__name__}: {exc}"[:200]})
             print(f"{z.name}: ERROR {type(exc).__name__}", file=sys.stderr)
@@ -169,8 +199,11 @@ def main(argv=None) -> int:
             related = res.get("related_locus_pairs") or []
             if related:   # interior-region pairs: related loci, never rescues
                 _write_tsv(a.out_dir / f"{name}_related_loci.tsv", list(related[0].keys()), related)
+            from .ref_completion import write_tables
+            write_tables(res.get("reference_completion") or {}, a.out_dir, f"{name}_")
         print(f"{z.name}: {s['regions']} regions, {s['scored_pairs']} pairs, {s['high']} HIGH "
-              f"({s['high_cross_contig']} across contigs), {s['candidate_groups']} candidate groups")
+              f"({s['high_cross_contig']} across contigs), {s['candidate_groups']} candidate groups; "
+              f"reference completion {s['completion_tier']}")
     if a.out_dir:
         _write_tsv(a.out_dir / "SUMMARY.tsv", SUMMARY_COLS, summary)
         _write_tsv(a.out_dir / "CANDIDATE_GROUPS.tsv", GROUP_COLS, all_groups)

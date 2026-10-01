@@ -38,14 +38,18 @@ def _input_record(zip_path: str | Path) -> dict[str, Any]:
             "rggmci_engine": prov.get("engine")}
 
 
-def run(zip_path: str | Path) -> dict[str, Any]:
+def run(zip_path: str | Path, **options: Any) -> dict[str, Any]:
     """Read an antiSMASH ZIP and score every region pair.
 
     Returns the scorer's own result, plus `regions`, a `both_at_contig_ends` description on each pair and
-    `candidate_groups`. The added keys never change a pair's score or confidence.
+    `candidate_groups`. The added keys never change a pair's score or confidence. `options` pass to the scorer: the
+    reference-guided completion settings (`reference_completion`, `mibig_db`, `sensitivity`, `threads`, `label`,
+    `pfam_hmm`) and
+    the residue-tiling ones (`diamond_db`, `diamond`, `residue_scope`, `residue_work_dir`).
     """
     bgcs = read_regions(zip_path)
-    result = run_rggmci(zip_path, bgcs)
+    options.setdefault("label", Path(zip_path).stem)
+    result = run_rggmci(zip_path, bgcs, **options)
     result["input"] = _input_record(zip_path)
     result["regions"] = [{"bgc_id": b.bgc_id, "contig": b.contig, "region": f"region{b.region_number:03d}",
                           "products": b.products, "edge_status": b.edge_status} for b in bgcs]

@@ -95,6 +95,40 @@ TT_HOMOPOLYMER_RUN_BP = 20
 TT_MIN_SHANNON_BITS = 1.20
 
 
+# ── Read-depth check (v9.7.445) ──────────────────────────────────────────────────────────
+# SPAdes writes each contig's k-mer coverage into its name (`NODE_7_length_52011_cov_41.2`). Two pieces of one
+# pathway come from one genome, so their contigs should have about the same depth. A pair whose depths differ a lot
+# may join a contaminant population to the genome, or a plasmid or repeat to the chromosome. The check is
+# observational: it adds fields and a flag, and never changes score or confidence. Names without `_cov_` (other
+# assemblers) give blank fields, which is not a failure.
+DEPTH_RATIO_MIN = 0.67   # lower depth / higher depth below this is flagged (the same band as the gap-rescue partner test)
+_COV_RE = re.compile(r"_cov_(\d+(?:\.\d+)?)(?![\d.])")
+
+
+def contig_depth(contig: str) -> float | None:
+    """The SPAdes coverage in a contig name, or None when the name carries none."""
+    m = _COV_RE.search(contig or "")
+    if not m:
+        return None
+    try:
+        v = float(m.group(1))
+    except ValueError:
+        return None
+    return v if math.isfinite(v) else None
+
+
+def depth_fields(contig_a: str, contig_b: str) -> dict[str, Any]:
+    """`depth_a`, `depth_b`, `depth_ratio` (lower over higher) and `depth_flag` for one pair of contigs."""
+    da, db = contig_depth(contig_a), contig_depth(contig_b)
+    if da is None or db is None:
+        return {"depth_a": "" if da is None else da, "depth_b": "" if db is None else db,
+                "depth_ratio": "", "depth_flag": "DEPTH_UNAVAILABLE"}
+    hi = max(da, db)
+    ratio = round(min(da, db) / hi, 3) if hi > 0 else ""
+    flag = "DEPTH_UNAVAILABLE" if ratio == "" else ("DEPTH_MISMATCH" if ratio < DEPTH_RATIO_MIN else "DEPTH_CONSISTENT")
+    return {"depth_a": da, "depth_b": db, "depth_ratio": ratio, "depth_flag": flag}
+
+
 def _terminus_truncation(bgc: BGCRecord) -> str:
     """Return 'start', 'end', 'both', or '' for how a region abuts its contig terminus.
 
@@ -1377,6 +1411,7 @@ def compute_rggmci(bgcs: list[BGCRecord], reference_map: dict[str, Any],
             "shared_reference_type_tokens": "; ".join(sorted(t for t in acc["reference_type_tokens"] if t)),
             "shared_product_tokens": "; ".join(sorted(t for t in acc["product_tokens"] if t)),
             "best_sources": " | ".join(acc["sources"][:5]),
+            **depth_fields(bgc_a.contig, bgc_b.contig),
             "interpretation_guard": "Homology-guided shared-reference linkage; not nucleotide-level joining.",
         })
 
@@ -1482,7 +1517,24 @@ def related_locus_pairs(bgcs: list[BGCRecord], reference_map: dict[str, Any], co
 
 
 def run_rggmci(zip_path: str | Path, bgcs: list[BGCRecord],
-               contigs: dict[str, str] | None = None) -> dict[str, Any]:
+               contigs: dict[str, str] | None = None, *, diamond_db: str | Path | None = None,
+               diamond: str | Path | None = None, residue_scope: str = "st_paralog",
+               residue_work_dir: str | Path | None = None, reference_completion: str = "auto",
+               mibig_db: str | Path | None = None, mibig_db_registry_from: str | Path | None = None,
+               sensitivity: str = "sensitive", label: str | None = None, threads: int = 4,
+               completion_work_dir: str | Path | None = None, pfam_hmm: str | Path | None = None) -> dict[str, Any]:
+    """Score every region pair, then add two report-only evidence layers (neither changes a score or confidence).
+
+    - Reference-guided completion (ref_completion.py), on by default: each edge region's best KnownClusterBlast MIBiG
+      reference searched across the whole genome, split genes, partner-contig tests, and `completion_tier`,
+      `ref_completion_partner` and `split_gene_links` on every pair. It needs a MIBiG protein database (`mibig_db`,
+      else $RGGMCI_MIBIG_DB, else the asset registry above `mibig_db_registry_from` when given) and an aligner;
+      without them the tier says what was missing. `reference_completion="off"` records tier OFF. Edge regions with no
+      KnownClusterBlast MIBiG hit get a discovered reference. The housekeeping-neighbour check uses a pressed
+      Pfam-A.hmm (`pfam_hmm`, else $RGGMCI_PFAM_HMM, else the asset registry) when pyhmmer is installed.
+    - Residue tiling (residue_tiling.py): with `diamond_db`, or by default when completion runs on DIAMOND with the
+      database's .dmnd, for the pairs the whole-gene paralog gate demoted.
+    """
     reference_map = parse_clusterblast_reference_map(zip_path, bgcs)
     gt = _glycosyltransferase_bgcs(zip_path, bgcs)
     edge = _contig_edge_bgcs(zip_path, bgcs)
@@ -1491,4 +1543,25 @@ def run_rggmci(zip_path: str | Path, bgcs: list[BGCRecord],
                                                         glycosyltransferase_bgcs=gt)
     result["reference_map_status"] = reference_map.get("status")
     result["reference_parse_error_count"] = reference_map.get("parse_error_count", 0)
+    from .ref_completion import complete, find_aligner, resolve_mibig_db, resolve_pfam_hmm
+    if reference_completion == "off":
+        db_path, how, pfam_path, pfam_how = None, "off", None, "off"
+    else:
+        db_path, how = resolve_mibig_db(mibig_db, registry_from=mibig_db_registry_from)
+        pfam_path, pfam_how = resolve_pfam_hmm(pfam_hmm, registry_from=mibig_db_registry_from)
+    if diamond_db is None and db_path and find_aligner(diamond)[0] == "diamond":
+        dmnd = Path(db_path, "mibig_proteins.dmnd")
+        diamond_db = dmnd if dmnd.is_file() else None
+    if diamond_db is not None:
+        from .residue_tiling import add_residue_tiling
+        add_residue_tiling(result, zip_path, bgcs, reference_map, diamond_db, diamond=diamond, scope=residue_scope,
+                           work_dir=residue_work_dir)
+
+    def _depth(a: str, b: str) -> float | None:
+        r = depth_fields(a, b)["depth_ratio"]
+        return None if r == "" else float(r)
+
+    complete(result, zip_path, bgcs, reference_map, edge, label=label, mibig_db=db_path, mibig_db_how=how,
+             mode="off" if reference_completion == "off" else "auto", diamond=diamond, sensitivity=sensitivity,
+             threads=threads, depth_of=_depth, work_dir=completion_work_dir, pfam_hmm=pfam_path, pfam_found_by=pfam_how)
     return result

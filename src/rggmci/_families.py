@@ -41,9 +41,10 @@ def product_family(product) -> str:
     A type missing from the table (a newer antiSMASH release) is placed by its name when the name says its
     family ("…-RiPP-like", "…peptide", "…PKS", "…-KS", "…NRP…", "…terpene…"); otherwise it is "other".
     """
-    p = str(product).strip().lower()
-    if p in ANTISMASH_PRODUCT_CATEGORY:
-        return ANTISMASH_PRODUCT_CATEGORY[p]
+    p = str(product).strip().lower().replace("_", "-")
+    categories = {k.replace("_", "-"): v for k, v in ANTISMASH_PRODUCT_CATEGORY.items()}
+    if p in categories:
+        return categories[p]
     if "ripp" in p or "peptide" in p or "lanthi" in p:
         return "ripp"
     if "pks" in p or p.endswith("-ks"):
